@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace litedbcli
 {
@@ -198,6 +199,8 @@ namespace litedbcli
                             {
                                 var sql = GetString(request.RootElement, "sql") ?? GetString(request.RootElement, "command");
                                 var limit = GetInt(request.RootElement, "limit") ?? opts.Limit;
+                                var sort = GetString(request.RootElement, "sort");
+                                var dir = GetString(request.RootElement, "dir");
 
                                 if (string.IsNullOrWhiteSpace(sql))
                                 {
@@ -209,7 +212,7 @@ namespace litedbcli
                                 else
                                 {
                                     EnsureWritable(sql, opts.Connection.ReadOnly);
-                                    WriteResult(writer, db, sql, limit, id);
+                                    WriteResult(writer, db, sql, limit, id, sort, dir);
                                 }
                             }
                             else if (op == "save")
@@ -284,10 +287,14 @@ namespace litedbcli
             }
         }
 
-        static void WriteResult(Utf8JsonWriter writer, LiteDatabase db, string command, int limit, JsonElement? id)
+        static void WriteResult(Utf8JsonWriter writer, LiteDatabase db, string command, int limit, JsonElement? id, string sort = null, string dir = null)
         {
             var sw = Stopwatch.StartNew();
             var cmd = command.Trim().TrimEnd(';').Trim();
+            var sortField = IsQuery(cmd) ? sort : null;
+            var execSql = cmd;
+            if (!string.IsNullOrWhiteSpace(sortField))
+                execSql = StripLimitOffset(cmd);
 
             if (IsShowTables(cmd))
             {
@@ -295,7 +302,7 @@ namespace litedbcli
                 return;
             }
 
-            using (var reader = db.Execute(command))
+            using (var reader = db.Execute(execSql))
             {
                 var isQuery = IsQuery(cmd);
 
@@ -306,7 +313,7 @@ namespace litedbcli
 
                     while (reader.Read())
                     {
-                        if (docs.Count >= limit)
+                        if (sortField == null && docs.Count >= limit)
                         {
                             truncated = true;
                             break;
@@ -314,6 +321,20 @@ namespace litedbcli
 
                         var value = reader.Current;
                         docs.Add(value.IsDocument ? value.AsDocument : new BsonDocument { ["value"] = value });
+                    }
+
+                    if (sortField != null)
+                    {
+                        var descending = string.Equals(dir, "desc", StringComparison.OrdinalIgnoreCase);
+                        docs.Sort((a, b) =>
+                        {
+                            BsonValue va = a.TryGetValue(sortField, out var av) ? av : BsonValue.Null;
+                            BsonValue vb = b.TryGetValue(sortField, out var bv) ? bv : BsonValue.Null;
+                            var comparison = va.CompareTo(vb);
+                            return descending ? -comparison : comparison;
+                        });
+                        truncated = docs.Count > limit;
+                        if (truncated) docs.RemoveRange(limit, docs.Count - limit);
                     }
 
                     var columns = new List<string>();
@@ -432,6 +453,15 @@ namespace litedbcli
             sw.Stop();
             writer.WriteNumber("elapsed_ms", sw.Elapsed.TotalMilliseconds);
             writer.WriteEndObject();
+        }
+
+        static string StripLimitOffset(string sql)
+        {
+            var pattern = new Regex(@"\s+(?:limit|offset)\s+\d+\s*$", RegexOptions.IgnoreCase);
+            var result = sql;
+            while (pattern.IsMatch(result))
+                result = pattern.Replace(result, "");
+            return result;
         }
 
         static bool IsQuery(string cmd)

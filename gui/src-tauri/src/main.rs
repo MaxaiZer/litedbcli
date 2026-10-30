@@ -132,7 +132,7 @@ async fn open_db(
 }
 
 #[tauri::command]
-async fn run_query(app: AppHandle, sql: String) -> Result<Value, String> {
+async fn run_query(app: AppHandle, sql: String, sort: Option<String>, dir: Option<String>) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state: State<AppState> = app.state();
         let mut guard = state
@@ -141,7 +141,14 @@ async fn run_query(app: AppHandle, sql: String) -> Result<Value, String> {
             .map_err(|_| "sidecar state is poisoned".to_string())?;
 
         let sidecar = guard.as_mut().ok_or("database is not open")?;
-        sidecar.request(json!({ "sql": sql, "limit": 1000 }))
+        let mut request = json!({ "sql": sql, "limit": 1000 });
+        if let Some(sort) = sort {
+            request["sort"] = json!(sort);
+        }
+        if let Some(dir) = dir {
+            request["dir"] = json!(dir);
+        }
+        sidecar.request(request)
     })
     .await
     .map_err(|e| e.to_string())?

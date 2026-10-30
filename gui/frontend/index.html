@@ -153,6 +153,9 @@
     color: var(--muted);
     font-weight: normal;
   }
+  th.sort { cursor: pointer; user-select: none; }
+  th.sort:hover { color: var(--fg); }
+  th .arrow { margin-left: 4px; }
   .idx { color: var(--muted); text-align: right; }
   td.null { color: var(--muted); font-style: italic; }
   tbody tr:hover { background: var(--hover); }
@@ -413,6 +416,13 @@
 
   let connected = false;
   let lastResponse = null;
+  let sortState = { field: null, dir: null };
+
+  const SORTABLE_SQL = /^\s*select\s+\$\s+from\s+\w+/i;
+
+  function sortActive() {
+    return sortState.dir !== null && SORTABLE_SQL.test($("sql").value.trim());
+  }
 
   function setStatus(text, cls) {
     status.textContent = text;
@@ -468,9 +478,22 @@
     corner.textContent = "#";
     headRow.appendChild(corner);
 
+    const sortable = SORTABLE_SQL.test($("sql").value.trim());
+
     for (const column of columns) {
       const th = document.createElement("th");
       th.textContent = column;
+      if (sortable) {
+        th.classList.add("sort");
+        th.title = "Sort by " + column;
+        th.onclick = () => cycleSort(column);
+        if (sortState.field === column) {
+          const arrow = document.createElement("span");
+          arrow.className = "arrow";
+          arrow.textContent = sortState.dir === "asc" ? "\u25B2" : "\u25BC";
+          th.appendChild(arrow);
+        }
+      }
       headRow.appendChild(th);
     }
 
@@ -723,6 +746,16 @@
   $("modal-save").onclick = saveDoc;
   $("modal-backdrop").onclick = closeModal;
 
+  function cycleSort(field) {
+    if (sortState.field === field) {
+      if (sortState.dir === "asc") sortState = { field: field, dir: "desc" };
+      else sortState = { field: null, dir: null };
+    } else {
+      sortState = { field: field, dir: "asc" };
+    }
+    run();
+  }
+
   function renderCollections(names) {
     collections.innerHTML = "";
     for (const name of names) {
@@ -732,6 +765,7 @@
       div.title = name;
       div.onclick = () => {
         $("sql").value = `select $ from ${name} limit 1000`;
+        sortState = { field: null, dir: null };
         run();
       };
       collections.appendChild(div);
@@ -775,9 +809,12 @@
     setStatus("running...");
 
     try {
-      const response = await invoke("run_query", {
-        sql,
-      });
+      const args = { sql };
+      if (sortActive()) {
+        args.sort = sortState.field;
+        args.dir = sortState.dir;
+      }
+      const response = await invoke("run_query", args);
       render(response);
     } catch (error) {
       showJson(String(error), true);
@@ -795,7 +832,7 @@
       title: "Choose LiteDB database file",
       multiple: false,
       filters: [
-        { name: "LiteDB", extensions: ["db"] },
+        { name: "LiteDB", extensions: ["db", "litedb"] },
         { name: "All files", extensions: ["*"] }
       ]
     };
@@ -838,6 +875,7 @@
       renderCollections(names);
       connected = true;
 
+      sortState = { field: null, dir: null };
       if (names.length && $("sql").value.trim() === "show tables") {
         $("sql").value = `select $ from ${names[0]} limit 1000`;
       }
@@ -876,6 +914,9 @@
       event.preventDefault();
       run();
     }
+  });
+  $("sql").addEventListener("input", () => {
+    if (!SORTABLE_SQL.test($("sql").value.trim())) sortState = { field: null, dir: null };
   });
 
   loadRecent();
