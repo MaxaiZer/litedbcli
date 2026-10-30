@@ -8,6 +8,20 @@ Command Line tool for managing LiteDB database.
 dotnet build litedbcli.slnx
 ```
 
+# Native binary (AOT)
+
+The project is configured for Native AOT: the published executable contains
+the runtime and needs no .NET installation.
+
+```bash
+dotnet publish litedbcli/litedbcli.csproj -c Release -r linux-x64 -o dist/linux-x64
+```
+
+Replace `linux-x64` with `win-x64`, `osx-x64` or `osx-arm64` as needed. Native
+AOT cannot cross-compile between operating systems, so each target must be
+built on its own OS (or in CI). On Linux the result is a ~6 MB executable;
+the accompanying `.dbg` file holds debug symbols and is not needed at runtime.
+
 # Usage
 
 ## One-shot command (automation-friendly)
