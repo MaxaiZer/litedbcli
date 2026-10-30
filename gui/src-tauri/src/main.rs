@@ -147,6 +147,22 @@ async fn run_query(app: AppHandle, sql: String) -> Result<Value, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn save_doc(app: AppHandle, collection: String, doc: Value) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state: State<AppState> = app.state();
+        let mut guard = state
+            .sidecar
+            .lock()
+            .map_err(|_| "sidecar state is poisoned".to_string())?;
+
+        let sidecar = guard.as_mut().ok_or("database is not open")?;
+        sidecar.request(json!({ "op": "save", "collection": collection, "doc": doc }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn push_recent(recent: &mut Vec<Value>, path: &str, readonly: bool, shared: bool) {
     let now = chrono::Utc::now().to_rfc3339();
     recent.retain(|entry| entry["path"] != json!(path));
@@ -329,7 +345,7 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_db, run_query, close_db, remember_recent, recent_list, binary_path])
+        .invoke_handler(tauri::generate_handler![open_db, run_query, save_doc, close_db, remember_recent, recent_list, binary_path])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

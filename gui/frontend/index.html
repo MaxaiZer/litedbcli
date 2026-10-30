@@ -41,6 +41,12 @@
     border-radius: 4px;
     font: inherit;
   }
+  header select {
+    /* WebKitGTK renders <select> as a native widget that overrides the CSS background */
+    background-color: var(--bg) !important;
+    color: var(--fg) !important;
+    color-scheme: dark;
+  }
   #recent { max-width: 280px; flex: 0 1 auto; }
   #db { flex: 1; min-width: 220px; }
   label.check {
@@ -163,6 +169,79 @@
   footer .grow { flex: 1; }
   .ok { color: var(--ok); }
   .err { color: var(--err); }
+
+  #modal { position: fixed; inset: 0; z-index: 10; }
+  .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .55);
+  }
+  .modal-box {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(720px, calc(100vw - 40px));
+    max-height: calc(100vh - 60px);
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
+  }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-weight: bold;
+  }
+  .modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: 10px 12px;
+  }
+  .modal-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .fields { display: flex; flex-direction: column; gap: 6px; }
+  .field {
+    display: grid;
+    grid-template-columns: 140px 110px 1fr 28px;
+    gap: 6px;
+    align-items: center;
+  }
+  .field .key { width: 100%; }
+  .field .type { width: 100%; }
+  .field .val input, .field .val select { width: 100%; }
+  .field input.key { font-weight: bold; }
+  .field .del {
+    padding: 2px 6px;
+    justify-self: end;
+    color: var(--muted);
+  }
+  .field .del:hover { color: var(--err); background: #45484d; }
+  .nested, .nested items {
+    margin-left: 24px;
+    border-left: 2px solid var(--border);
+    padding-left: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .addbtn {
+    justify-self: start;
+    padding: 2px 8px;
+    color: var(--muted);
+  }
+  .fixed { color: var(--muted); font-style: italic; }
+  .hint { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -198,12 +277,31 @@
       <div id="out" class="out"><pre>Open a database to start.</pre></div>
     </div>
   </section>
+  <div id="modal" hidden>
+    <div id="modal-backdrop" class="modal-backdrop"></div>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="modal-title">Edit document</span>
+        <span class="grow"></span>
+        <span id="modal-readonly" class="hint" hidden>read-only</span>
+        <button id="modal-close" title="Close">&#10005;</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+      <div class="modal-foot">
+        <span id="modal-msg" class="grow"></span>
+        <button id="modal-cancel">Cancel</button>
+        <button id="modal-save" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <footer>
   <span id="status">idle</span>
 </footer>
 
+<script src="lib.js"></script>
 <script>
   const { invoke } = window.__TAURI__.core;
   const $ = (id) => document.getElementById(id);
@@ -275,7 +373,11 @@
     if (value.$date) return value.$date;
     if (value.$numberLong) return value.$numberLong;
     if (value.$numberDecimal) return value.$numberDecimal;
-    if (value.$binary) return "binary(" + (value.$binary.base64 || "").length + ")";
+    if (value.$guid !== undefined) return value.$guid;
+    if (value.$binary !== undefined) {
+      const b = typeof value.$binary === "string" ? value.$binary : (value.$binary.base64 || "");
+      return "binary(" + b.length + " bytes)";
+    }
     return JSON.stringify(value);
   }
 
@@ -331,6 +433,8 @@
         tr.appendChild(td);
       }
 
+      tr.title = "click to edit document";
+      tr.onclick = () => openEditor(row, response.collection);
       tbody.appendChild(tr);
     });
 
@@ -340,6 +444,212 @@
     out.innerHTML = "";
     out.appendChild(wrap);
   }
+
+
+  // document editor modal (pure helpers from lib.js)
+
+  let editor = null;
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  function rerenderEditor() {
+    if (!editor) return;
+    const body = $("modal-body");
+    body.innerHTML = "";
+    body.appendChild(renderDoc(editor.model));
+  }
+
+  function renderDoc(model) {
+    const box = el("div", "fields");
+    for (const f of model.value) box.appendChild(renderField(f, model.value));
+    const add = el("button", "addbtn", "+ field");
+    add.onclick = () => {
+      model.value.push({ key: "new", model: LiteDbGui.defaultModel("string") });
+      rerenderEditor();
+    };
+    box.appendChild(add);
+    return box;
+  }
+
+  function renderField(f, parent) {
+    const row = el("div", "field");
+    const key = el("input", "key");
+    key.value = f.key;
+    key.spellcheck = false;
+    key.onchange = () => { f.key = key.value.trim(); };
+    row.appendChild(key);
+    row.appendChild(renderTypeSelect(() => { f.model = LiteDbGui.defaultModel(f.model.type); rerenderEditor(); }, f.model.type));
+    const val = el("div", "val");
+    renderValue(f.model, val);
+    row.appendChild(val);
+    const del = el("button", "del", "\u00d7");
+    del.title = "remove field";
+    del.onclick = () => {
+      const i = parent.indexOf(f);
+      if (i >= 0) parent.splice(i, 1);
+      rerenderEditor();
+    };
+    row.appendChild(del);
+    return row;
+  }
+
+  function renderItem(m, parent) {
+    const row = el("div", "item");
+    row.appendChild(renderTypeSelect(() => {
+      const idx = parent.indexOf(m);
+      parent.splice(idx, 1, LiteDbGui.defaultModel(m.type));
+      rerenderEditor();
+    }, m.type));
+    const val = el("div", "val");
+    renderValue(m, val);
+    row.appendChild(val);
+    const del = el("button", "del", "\u00d7");
+    del.title = "remove item";
+    del.onclick = () => {
+      const i = parent.indexOf(m);
+      if (i >= 0) parent.splice(i, 1);
+      rerenderEditor();
+    };
+    row.appendChild(del);
+    return row;
+  }
+
+  function renderTypeSelect(onChange, current) {
+    const sel = el("select", "type");
+    for (const t of LiteDbGui.TYPES) {
+      const o = el("option");
+      o.value = t;
+      o.textContent = t;
+      sel.appendChild(o);
+    }
+    sel.value = current;
+    sel.onchange = () => { onChange(sel.value); };
+    return sel;
+  }
+
+  function renderValue(model, box) {
+    box.innerHTML = "";
+    const t = model.type;
+    if (t === "string" || t === "int" || t === "long" || t === "double" || t === "decimal"
+      || t === "oid" || t === "guid" || t === "binary") {
+      const i = el("input");
+      i.value = model.value === null ? "" : model.value;
+      i.spellcheck = false;
+      if (t === "binary") i.title = "base64";
+      i.onchange = () => { model.value = i.value; };
+      box.appendChild(i);
+      return;
+    }
+    if (t === "date") {
+      const i = el("input");
+      i.type = "datetime-local";
+      i.value = LiteDbGui.dateToInput(model.value);
+      i.onchange = () => {
+        try { model.value = LiteDbGui.inputToDate(i.value); i.title = ""; }
+        catch (e) { i.title = String(e.message || e); }
+      };
+      box.appendChild(i);
+      return;
+    }
+    if (t === "bool") {
+      const s = el("select");
+      for (const v of ["true", "false"]) {
+        const o = el("option");
+        o.value = v;
+        o.textContent = v;
+        s.appendChild(o);
+      }
+      s.value = String(model.value);
+      s.onchange = () => { model.value = s.value === "true"; };
+      box.appendChild(s);
+      return;
+    }
+    if (t === "null" || t === "minValue" || t === "maxValue") {
+      box.appendChild(el("span", "fixed", t));
+      return;
+    }
+    if (t === "array") {
+      const list = el("div", "nested items");
+      for (const m of model.value) list.appendChild(renderItem(m, model.value));
+      const add = el("button", "addbtn", "+ item");
+      add.onclick = () => { model.value.push(LiteDbGui.defaultModel("string")); rerenderEditor(); };
+      list.appendChild(add);
+      box.appendChild(list);
+      return;
+    }
+    if (t === "object") {
+      const nested = el("div", "nested");
+      for (const f of model.value) nested.appendChild(renderField(f, model.value));
+      const add = el("button", "addbtn", "+ field");
+      add.onclick = () => { model.value.push({ key: "new", model: LiteDbGui.defaultModel("string") }); rerenderEditor(); };
+      nested.appendChild(add);
+      box.appendChild(nested);
+      return;
+    }
+    box.appendChild(el("span", "hint", "unknown type"));
+  }
+
+  function openEditor(row, collection) {
+    if (!collection) {
+      setStatus("edit requires a collection name in the result", "err");
+      return;
+    }
+    try {
+      editor = { model: LiteDbGui.toModel(row), collection };
+    } catch (e) {
+      setStatus("cannot build editor: " + String(e.message || e), "err");
+      return;
+    }
+    const ro = $("ro").checked;
+    $("modal-title").textContent = collection + " \u00b7 _id " + cellValue(row._id);
+    $("modal-readonly").hidden = !ro;
+    $("modal-save").disabled = ro || !connected;
+    $("modal-msg").textContent = "";
+    $("modal-msg").className = "grow";
+    rerenderEditor();
+    $("modal").hidden = false;
+  }
+
+  function closeModal() {
+    editor = null;
+    $("modal").hidden = true;
+  }
+
+  async function saveDoc() {
+    if (!editor) return;
+    let doc;
+    try {
+      doc = LiteDbGui.fromModel(editor.model);
+    } catch (e) {
+      $("modal-msg").textContent = String(e.message || e);
+      $("modal-msg").className = "grow err";
+      return;
+    }
+    $("modal-save").disabled = true;
+    try {
+      const res = await invoke("save_doc", { collection: editor.collection, doc });
+      if (!res || res.ok === false) throw new Error(res && res.error ? res.error : "save failed");
+      if (res.updated === false) throw new Error("document not found (id may have changed)");
+      closeModal();
+      setStatus("saved", "ok");
+      run();
+    } catch (e) {
+      $("modal-msg").textContent = String(e.message || e);
+      $("modal-msg").className = "grow err";
+    } finally {
+      $("modal-save").disabled = $("ro").checked || !connected;
+    }
+  }
+
+  $("modal-close").onclick = closeModal;
+  $("modal-cancel").onclick = closeModal;
+  $("modal-save").onclick = saveDoc;
+  $("modal-backdrop").onclick = closeModal;
 
   function renderCollections(names) {
     collections.innerHTML = "";

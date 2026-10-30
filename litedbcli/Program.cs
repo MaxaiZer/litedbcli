@@ -212,6 +212,24 @@ namespace litedbcli
                                     WriteResult(writer, db, sql, limit, id);
                                 }
                             }
+                            else if (op == "save")
+                            {
+                                var collection = GetString(request.RootElement, "collection");
+                                var hasDoc = request.RootElement.TryGetProperty("doc", out var docEl)
+                                    && docEl.ValueKind == JsonValueKind.Object;
+
+                                if (string.IsNullOrWhiteSpace(collection) || !hasDoc)
+                                {
+                                    WriteEnvelopeStart(writer, id, false);
+                                    writer.WriteString("error", "save requires 'collection' and 'doc' object");
+                                    writer.WriteString("type", "RequestError");
+                                    writer.WriteEndObject();
+                                }
+                                else
+                                {
+                                    SaveDoc(writer, db, opts, id, collection, docEl);
+                                }
+                            }
                             else if (op == "close")
                             {
                                 WriteEnvelopeStart(writer, id, true);
@@ -396,6 +414,24 @@ namespace litedbcli
         static string ToJson(BsonValue value)
         {
             return LiteDB.JsonSerializer.Serialize(value);
+        }
+
+        static void SaveDoc(Utf8JsonWriter writer, LiteDatabase db, Options opts, JsonElement? id, string collection, JsonElement doc)
+        {
+            var sw = Stopwatch.StartNew();
+
+            if (opts.Connection.ReadOnly)
+                throw new InvalidOperationException("database is opened read-only");
+
+            var bson = SaveOps.FromJson(doc.GetRawText());
+            var updated = SaveOps.Save(db, collection, bson);
+
+            WriteEnvelopeStart(writer, id, true);
+            writer.WriteString("type", "result");
+            writer.WriteBoolean("updated", updated);
+            sw.Stop();
+            writer.WriteNumber("elapsed_ms", sw.Elapsed.TotalMilliseconds);
+            writer.WriteEndObject();
         }
 
         static bool IsQuery(string cmd)
