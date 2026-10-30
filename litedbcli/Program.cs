@@ -1,57 +1,116 @@
 using LiteDB;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Text.Json;
 
 namespace litedbcli
 {
     class Program
     {
+        const int DefaultLimit = 1000;
+
         static int Main(string[] args)
         {
-            if (args.Length == 0)
+            var opts = new Options();
+
+            if (!opts.Parse(args))
             {
-                Console.WriteLine("Usage: litedbcli <connectionArgs> [<command>...]");
-                Console.WriteLine();
-                Console.WriteLine("  <connectionArgs>  Database file path, or a full connection string");
-                Console.WriteLine("                    (e.g. \"Filename=test.db;Password=secret;Connection=shared\")");
-                Console.WriteLine("  <command>         Optional command to run once and exit.");
-                Console.WriteLine("                    Omit to enter interactive mode.");
-                Console.WriteLine();
-                Console.WriteLine("Examples:");
-                Console.WriteLine("  litedbcli test.db                      Interactive mode");
-                Console.WriteLine("  litedbcli test.db \"show tables\"");
-                Console.WriteLine("  litedbcli test.db \"select * from Users limit 10\"");
+                if (opts.Help)
+                {
+                    PrintUsage(Console.Out);
+                    return 0;
+                }
+                Console.Error.WriteLine("Error: " + opts.Error);
+                PrintUsage(Console.Error);
                 return 2;
             }
 
-            var connstr = BuildConnectionString(args[0]);
-            var command = args.Length > 1 ? string.Join(" ", args.Skip(1)) : null;
+            if (opts.Serve && opts.Command != null)
+            {
+                Console.Error.WriteLine("Error: --serve does not accept a command");
+                return 2;
+            }
+
+            if (opts.Serve && opts.Json == false)
+                opts.Json = true;
 
             try
             {
-                using (LiteDatabase db = new LiteDatabase(connstr))
+                using (var db = new LiteDatabase(opts.Connection))
                 {
-                    if (command == null)
-                        return Interactive(db);
-                    Perform(db, command);
+                    if (opts.Serve)
+                        return Serve(db, opts);
+
+                    if (opts.Command == null)
+                        return Interactive(db, opts);
+
+                    EnsureWritable(opts.Command, opts.Connection.ReadOnly);
+
+                    return opts.Json ? RunJson(db, opts) : RunText(db, opts);
                 }
-                return 0;
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                if (opts.Json)
+                    WriteError(ex, null);
+                else
+                    Console.Error.WriteLine("Error: " + ex.Message);
                 return 1;
             }
         }
 
-        static string BuildConnectionString(string arg)
+        static int RunJson(LiteDatabase db, Options opts)
         {
-            if (arg.IndexOf('=') >= 0)
-                return arg;
-            return $"Filename=\"{arg}\"; Connection=shared";
+            using (var buffer = new MemoryStream())
+            {
+                using (var writer = new Utf8JsonWriter(buffer))
+                {
+                    WriteResult(writer, db, opts.Command, opts.Limit, null);
+                }
+                Console.Out.WriteLine(Encoding.UTF8.GetString(buffer.ToArray()));
+                Console.Out.Flush();
+            }
+            return 0;
         }
 
-        static int Interactive(LiteDatabase db)
+        static int RunText(LiteDatabase db, Options opts)
+        {
+            using (var reader = db.Execute(opts.Command))
+            {
+                var isQuery = IsQuery(opts.Command);
+                var count = 0;
+
+                while (reader.Read() && count < opts.Limit)
+                {
+                    var value = reader.Current;
+
+                    if (isQuery)
+                    {
+                        var doc = value.IsDocument ? value.AsDocument : new BsonDocument { ["value"] = value };
+
+                        if (count == 0)
+                        {
+                            Console.WriteLine(string.Join("\t", doc.Keys));
+                            Console.WriteLine(new string('-', 50));
+                        }
+                        Console.WriteLine(string.Join("\t", doc.Values));
+                        Console.WriteLine("-----------");
+                    }
+                    else
+                    {
+                        Console.WriteLine(ToJson(value));
+                    }
+                    count++;
+                }
+            }
+            return 0;
+        }
+
+        static int Interactive(LiteDatabase db, Options opts)
         {
             while (true)
             {
@@ -59,54 +118,526 @@ namespace litedbcli
                 var cmd = Console.ReadLine()?.Trim();
                 if (cmd == "exit" || cmd == "quit") break;
                 if (string.IsNullOrWhiteSpace(cmd)) continue;
+
                 try
                 {
-                    Perform(db, cmd);
+                    EnsureWritable(cmd, opts.Connection.ReadOnly);
+
+                    if (opts.Json)
+                    {
+                        using (var buffer = new MemoryStream())
+                        {
+                            using (var writer = new Utf8JsonWriter(buffer))
+                            {
+                                WriteResult(writer, db, cmd, opts.Limit, null);
+                            }
+                            Console.WriteLine(Encoding.UTF8.GetString(buffer.ToArray()));
+                        }
+                    }
+                    else
+                    {
+                        RunText(db, new Options
+                        {
+                            Command = cmd,
+                            Limit = opts.Limit
+                        });
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error running command: {ex.Message}");
+                    if (opts.Json)
+                        WriteError(ex, null);
+                    else
+                        Console.WriteLine($"Error running command: {ex.Message}");
                 }
             }
             return 0;
         }
 
-        static void Perform(LiteDatabase db, string cmd)
+        static int Serve(LiteDatabase db, Options opts)
         {
-            if (cmd.Length == 0) return;
-
-            if (cmd.Equals("SHOW TABLES", StringComparison.OrdinalIgnoreCase) ||
-                cmd.Equals("LIST COLLECTIONS", StringComparison.OrdinalIgnoreCase))
+            string line;
+            while ((line = Console.In.ReadLine()) != null)
             {
-                var collections = db.GetCollectionNames();
-                foreach (var col in collections)
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                var shouldClose = false;
+                JsonElement id = default;
+                string response;
+
+                try
                 {
-                    Console.WriteLine(col);
+                    using (var buffer = new MemoryStream())
+                    {
+                        using (var writer = new Utf8JsonWriter(buffer))
+                        using (var request = ParseRequest(line, out id))
+                        {
+                        if (request == null)
+                        {
+                            WriteEnvelopeStart(writer, id, false);
+                            writer.WriteString("error", "invalid JSON request");
+                            writer.WriteString("type", "ParseError");
+                            writer.WriteEndObject();
+                        }
+                        else
+                        {
+                            var op = GetString(request.RootElement, "op") ?? "exec";
+
+                            if (op == "ping")
+                            {
+                                WriteEnvelopeStart(writer, id, true);
+                                writer.WriteString("type", "pong");
+                                writer.WriteString("version", typeof(Program).Assembly.GetName().Version?.ToString());
+                                writer.WriteEndObject();
+                            }
+                            else if (op == "collections")
+                            {
+                                WriteCollections(writer, db, id);
+                            }
+                            else if (op == "exec" || op == "query")
+                            {
+                                var sql = GetString(request.RootElement, "sql") ?? GetString(request.RootElement, "command");
+                                var limit = GetInt(request.RootElement, "limit") ?? opts.Limit;
+
+                                if (string.IsNullOrWhiteSpace(sql))
+                                {
+                                    WriteEnvelopeStart(writer, id, false);
+                                    writer.WriteString("error", "missing 'sql'");
+                                    writer.WriteString("type", "RequestError");
+                                    writer.WriteEndObject();
+                                }
+                                else
+                                {
+                                    EnsureWritable(sql, opts.Connection.ReadOnly);
+                                    WriteResult(writer, db, sql, limit, id);
+                                }
+                            }
+                            else if (op == "close")
+                            {
+                                WriteEnvelopeStart(writer, id, true);
+                                writer.WriteString("type", "bye");
+                                writer.WriteEndObject();
+                                shouldClose = true;
+                            }
+                            else
+                            {
+                                WriteEnvelopeStart(writer, id, false);
+                                writer.WriteString("error", "unknown op: " + op);
+                                writer.WriteString("type", "RequestError");
+                                writer.WriteEndObject();
+                            }
+                        }
+                        }
+
+                        response = Encoding.UTF8.GetString(buffer.ToArray());
+                    }
                 }
-                Console.WriteLine($"Total collections: {collections.Count()}");
+                catch (Exception ex)
+                {
+                    response = ErrorJson(ex, id);
+                }
+
+                Console.Out.WriteLine(response);
+                Console.Out.Flush();
+
+                if (shouldClose) return 0;
+            }
+            return 0;
+        }
+
+        static JsonDocument ParseRequest(string line, out JsonElement id)
+        {
+            id = default;
+            try
+            {
+                var doc = JsonDocument.Parse(line);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    doc.Dispose();
+                    return null;
+                }
+                if (doc.RootElement.TryGetProperty("id", out var value))
+                    id = value.Clone();
+                return doc;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        static void WriteResult(Utf8JsonWriter writer, LiteDatabase db, string command, int limit, JsonElement? id)
+        {
+            var sw = Stopwatch.StartNew();
+            var cmd = command.Trim().TrimEnd(';').Trim();
+
+            if (IsShowTables(cmd))
+            {
+                WriteCollections(writer, db, id);
                 return;
             }
 
-            var reader = db.Execute(cmd);
-            int affectedRows = 0;
-            bool headerPrinted = false;
-            while (reader.Read())
+            using (var reader = db.Execute(command))
             {
-                if (cmd.StartsWith("select", StringComparison.OrdinalIgnoreCase))
+                var isQuery = IsQuery(cmd);
+
+                if (isQuery)
                 {
-                    var document = reader.Current.AsDocument;
-                    if (!headerPrinted)
+                    var docs = new List<BsonDocument>();
+                    var truncated = false;
+
+                    while (reader.Read())
                     {
-                        Console.WriteLine(string.Join("\t", document.Keys));
-                        Console.WriteLine(new string('-', 50));
-                        headerPrinted = true;
+                        if (docs.Count >= limit)
+                        {
+                            truncated = true;
+                            break;
+                        }
+
+                        var value = reader.Current;
+                        docs.Add(value.IsDocument ? value.AsDocument : new BsonDocument { ["value"] = value });
                     }
-                    Console.WriteLine(string.Join("\t", document.Values));
-                    Console.WriteLine("-----------");
+
+                    var columns = new List<string>();
+                    var seen = new HashSet<string>(StringComparer.Ordinal);
+
+                    foreach (var doc in docs)
+                    {
+                        foreach (var key in doc.Keys)
+                        {
+                            if (seen.Add(key)) columns.Add(key);
+                        }
+                    }
+
+                    WriteEnvelopeStart(writer, id, true);
+                    writer.WriteString("type", "query");
+                    if (reader.Collection != null)
+                        writer.WriteString("collection", reader.Collection);
+                    WriteStringArray(writer, "columns", columns);
+                    writer.WriteNumber("count", docs.Count);
+                    writer.WriteBoolean("truncated", truncated);
+
+                    writer.WritePropertyName("rows");
+                    writer.WriteStartArray();
+                    foreach (var doc in docs)
+                        writer.WriteRawValue(ToJson(doc), true);
+                    writer.WriteEndArray();
                 }
-                affectedRows++;
+                else
+                {
+                    BsonValue value = BsonValue.Null;
+                    var hasValue = reader.Read();
+                    if (hasValue) value = reader.Current;
+
+                    WriteEnvelopeStart(writer, id, true);
+                    writer.WriteString("type", "result");
+                    writer.WritePropertyName("value");
+                    writer.WriteRawValue(ToJson(value), true);
+                }
             }
-            Console.WriteLine("Total records affected: " + affectedRows);
+
+            sw.Stop();
+            writer.WriteNumber("elapsed_ms", sw.Elapsed.TotalMilliseconds);
+            writer.WriteEndObject();
+        }
+
+        static void WriteCollections(Utf8JsonWriter writer, LiteDatabase db, JsonElement? id)
+        {
+            var names = db.GetCollectionNames().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+
+            WriteEnvelopeStart(writer, id, true);
+            writer.WriteString("type", "collections");
+            WriteStringArray(writer, "collections", names);
+            writer.WriteNumber("count", names.Length);
+            writer.WriteEndObject();
+        }
+
+        static void WriteEnvelopeStart(Utf8JsonWriter writer, JsonElement? id, bool ok)
+        {
+            writer.WriteStartObject();
+            if (id.HasValue && id.Value.ValueKind != JsonValueKind.Undefined)
+            {
+                writer.WritePropertyName("id");
+                writer.WriteRawValue(id.Value.GetRawText(), true);
+            }
+            writer.WriteBoolean("ok", ok);
+        }
+
+        static string ErrorJson(Exception ex, JsonElement id)
+        {
+            using (var buffer = new MemoryStream())
+            {
+                using (var writer = new Utf8JsonWriter(buffer))
+                {
+                    WriteEnvelopeStart(writer, id.ValueKind == JsonValueKind.Undefined ? (JsonElement?)null : id, false);
+                    writer.WriteString("error", ex.Message);
+                    writer.WriteString("type", ex.GetType().Name);
+                    writer.WriteEndObject();
+                }
+                return Encoding.UTF8.GetString(buffer.ToArray());
+            }
+        }
+
+        static void WriteError(Exception ex, JsonElement? id)
+        {
+            Console.Out.WriteLine(ErrorJson(ex, id ?? default));
+            Console.Out.Flush();
+        }
+
+        static void WriteStringArray(Utf8JsonWriter writer, string name, IEnumerable<string> values)
+        {
+            writer.WritePropertyName(name);
+            writer.WriteStartArray();
+            foreach (var value in values)
+                writer.WriteStringValue(value);
+            writer.WriteEndArray();
+        }
+
+        static string ToJson(BsonValue value)
+        {
+            return LiteDB.JsonSerializer.Serialize(value);
+        }
+
+        static bool IsQuery(string cmd)
+        {
+            var trimmed = cmd.TrimStart();
+            return trimmed.StartsWith("select", StringComparison.OrdinalIgnoreCase) ||
+                   trimmed.StartsWith("explain", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static bool IsShowTables(string cmd)
+        {
+            var normalized = cmd.Trim().TrimEnd(';').Trim();
+            return normalized.Equals("show tables", StringComparison.OrdinalIgnoreCase) ||
+                   normalized.Equals("show collections", StringComparison.OrdinalIgnoreCase) ||
+                   normalized.Equals("list collections", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static string GetString(JsonElement element, string name)
+        {
+            return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
+
+        static int? GetInt(JsonElement element, string name)
+        {
+            if (!element.TryGetProperty(name, out var value)) return null;
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+                return Math.Clamp(number, 1, 100000);
+            return null;
+        }
+
+        static void PrintUsage(TextWriter output)
+        {
+            output.WriteLine("Usage: litedbcli <connection> [command] [options]");
+            output.WriteLine();
+            output.WriteLine("  <connection>      Database file path or connection string");
+            output.WriteLine("                    (e.g. \"Filename=test.db;Password=secret\")");
+            output.WriteLine("  [command]         SQL command to run once. Omit for interactive mode.");
+            output.WriteLine();
+            output.WriteLine("Options:");
+            output.WriteLine("  --json            Print one JSON object instead of text");
+            output.WriteLine("  --serve           Read NDJSON requests from stdin (implies --json)");
+            output.WriteLine("  --limit <n>       Max rows returned (default: " + DefaultLimit + ")");
+            output.WriteLine("  --readonly        Open database in read-only mode");
+            output.WriteLine("  --shared          Use Connection=Shared (safe for multiple processes)");
+            output.WriteLine("  --direct          Use Connection=Direct (default, fastest)");
+            output.WriteLine("  --password <pwd>  Database password");
+            output.WriteLine("  --help            Show this help");
+            output.WriteLine();
+            output.WriteLine("Examples:");
+            output.WriteLine("  litedbcli test.db \"show tables\"");
+            output.WriteLine("  litedbcli test.db --json \"select $ from Users limit 10\"");
+            output.WriteLine("  litedbcli test.db --serve");
+        }
+
+        sealed class Options
+        {
+            public bool Json { get; set; }
+            public bool Serve { get; set; }
+            public bool Help { get; set; }
+            public string Error { get; set; }
+            public int Limit { get; set; } = DefaultLimit;
+            public string Command { get; set; }
+            public ConnectionString Connection { get; set; }
+
+            public bool Parse(string[] args)
+            {
+                if (args.Length == 0)
+                {
+                    Help = true;
+                    return false;
+                }
+
+                string connectionArg = null;
+                var commandParts = new List<string>();
+                string password = null;
+                ConnectionType? mode = null;
+                bool? readOnly = null;
+
+                for (var i = 0; i < args.Length; i++)
+                {
+                    var arg = args[i];
+
+                    switch (arg)
+                    {
+                        case "--json":
+                            Json = true;
+                            continue;
+                        case "--serve":
+                            Serve = true;
+                            continue;
+                        case "--readonly":
+                            readOnly = true;
+                            continue;
+                        case "--shared":
+                            mode = ConnectionType.Shared;
+                            continue;
+                        case "--direct":
+                            mode = ConnectionType.Direct;
+                            continue;
+                        case "--help":
+                        case "-h":
+                            Help = true;
+                            return false;
+                    }
+
+                    if (arg == "--password" || arg.StartsWith("--password=", StringComparison.Ordinal))
+                    {
+                        if (arg.Contains('='))
+                        {
+                            password = arg.Substring(arg.IndexOf('=') + 1);
+                        }
+                        else
+                        {
+                            password = Next(args, ref i, "--password", out var passwordError);
+                            if (passwordError != null)
+                            {
+                                Error = passwordError;
+                                return false;
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (arg == "--limit" || arg.StartsWith("--limit=", StringComparison.Ordinal))
+                    {
+                        string value;
+                        if (arg.Contains('='))
+                        {
+                            value = arg.Substring(arg.IndexOf('=') + 1);
+                        }
+                        else
+                        {
+                            value = Next(args, ref i, "--limit", out var limitError);
+                            if (limitError != null)
+                            {
+                                Error = limitError;
+                                return false;
+                            }
+                        }
+                        if (!int.TryParse(value, out var limit) || limit <= 0)
+                        {
+                            Error = "--limit must be a positive integer";
+                            return false;
+                        }
+                        Limit = Math.Min(limit, 100000);
+                        continue;
+                    }
+
+                    if (arg.StartsWith("-", StringComparison.Ordinal) && arg != "-")
+                    {
+                        Error = "unknown option: " + arg;
+                        return false;
+                    }
+
+                    if (connectionArg == null)
+                        connectionArg = arg;
+                    else
+                        commandParts.Add(arg);
+                }
+
+                if (connectionArg == null)
+                {
+                    Error = "missing database file or connection string";
+                    return false;
+                }
+
+                Connection = BuildConnectionString(connectionArg);
+
+                if (password != null)
+                    Connection.Password = password;
+                if (readOnly.HasValue)
+                    Connection.ReadOnly = readOnly.Value;
+                if (mode.HasValue)
+                    Connection.Connection = mode.Value;
+
+                Command = commandParts.Count > 0 ? string.Join(" ", commandParts) : null;
+
+                return true;
+            }
+
+            static string Next(string[] args, ref int i, string name, out string error)
+            {
+                error = null;
+                if (i + 1 >= args.Length)
+                {
+                    error = name + " requires a value";
+                    return null;
+                }
+                return args[++i];
+            }
+        }
+
+        static ConnectionString BuildConnectionString(string arg)
+        {
+            var first = arg.Split(';')[0];
+            var eq = first.IndexOf('=');
+            var key = eq > 0 ? first.Substring(0, eq).Trim() : null;
+
+            var looksLikeConnectionString = arg.Contains(';') || IsConnectionKey(key);
+
+            return looksLikeConnectionString
+                ? new ConnectionString(arg)
+                : new ConnectionString { Filename = arg };
+        }
+
+        static bool IsConnectionKey(string key)
+        {
+            if (key == null) return false;
+
+            switch (key.ToLowerInvariant())
+            {
+                case "filename":
+                case "password":
+                case "connection":
+                case "readonly":
+                case "upgrade":
+                case "initial size":
+                case "collation":
+                case "auto-rebuild":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static void EnsureWritable(string command, bool readOnly)
+        {
+            if (!readOnly) return;
+
+            var cmd = command.TrimStart();
+            if (cmd.StartsWith("select", StringComparison.OrdinalIgnoreCase) ||
+                cmd.StartsWith("explain", StringComparison.OrdinalIgnoreCase) ||
+                cmd.StartsWith("show ", StringComparison.OrdinalIgnoreCase) ||
+                cmd.StartsWith("list ", StringComparison.OrdinalIgnoreCase) ||
+                cmd.StartsWith("pragma", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException("database is opened read-only");
         }
     }
 }
