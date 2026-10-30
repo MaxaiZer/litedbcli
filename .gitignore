@@ -402,3 +402,7 @@ FodyWeavers.xsd
 
 # Published output
 dist/
+
+# GUI (Tauri)
+gui/src-tauri/target/
+gui/src-tauri/gen/

@@ -23,6 +23,19 @@ AOT cannot cross-compile between operating systems, so each target must be
 built on its own OS (or in CI). On Linux the result is a ~6 MB executable;
 the accompanying `.dbg` file holds debug symbols and is not needed at runtime.
 
+# GUI
+
+`gui/` contains a Tauri v2 desktop app that drives `litedbcli --serve` as a
+sidecar process over NDJSON. It has no frontend build step (one `index.html`,
+no npm) and no other runtime dependency than WebKitGTK.
+
+```bash
+cd gui/src-tauri && cargo build
+./target/debug/litedb-gui
+```
+
+See `gui/README.md` for details.
+
 # Usage
 
 ```text

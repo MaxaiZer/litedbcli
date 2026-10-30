@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LiteDB Studio</title>
+<style>
+  :root {
+    --bg: #1e1f22;
+    --panel: #2b2d30;
+    --border: #3c3f41;
+    --fg: #d6d6d6;
+    --muted: #8a8f98;
+    --accent: #4c9aff;
+    --ok: #6abf69;
+    --err: #e06c75;
+    --hover: #35373b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    background: var(--bg);
+    color: var(--fg);
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  header {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header input[type=text], header input[type=number] {
+    padding: 5px 8px;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font: inherit;
+  }
+  #db { flex: 1; min-width: 220px; }
+  #bin { flex: 0 1 320px; min-width: 180px; }
+  #limit { width: 76px; }
+  label.check {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  label.check input { accent-color: var(--accent); }
+  button {
+    padding: 5px 12px;
+    background: #3a3d41;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #45484d; }
+  button.primary { background: #2f6fbf; border-color: #2f6fbf; }
+  button:disabled { opacity: .45; cursor: default; }
+
+  main { display: grid; grid-template-columns: 230px 1fr; min-height: 0; }
+  aside {
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    overflow: auto;
+    padding: 6px 0;
+  }
+  aside h2 {
+    margin: 6px 10px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+  }
+  .collection {
+    padding: 4px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .collection:hover { background: var(--hover); }
+
+  section { display: grid; grid-template-rows: 170px 1fr; min-height: 0; }
+  .editor { display: flex; flex-direction: column; min-height: 0; }
+  .editor + .editor { border-top: 1px solid var(--border); }
+  .editor .label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .editor .label .grow { flex: 1; }
+  textarea {
+    flex: 1;
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    resize: none;
+    outline: none;
+    background: var(--bg);
+    color: var(--fg);
+    border: 0;
+    font: inherit;
+    tab-size: 2;
+  }
+  .out { flex: 1; overflow: auto; min-height: 0; }
+  .out pre {
+    margin: 0;
+    padding: 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font: inherit;
+  }
+  .out pre.err { color: var(--err); }
+
+  .tablewrap { overflow: auto; height: 100%; }
+  table { border-collapse: collapse; width: max-content; min-width: 100%; }
+  th, td {
+    padding: 3px 10px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+    font: inherit;
+    max-width: 520px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--panel);
+    color: var(--muted);
+    font-weight: normal;
+  }
+  td.idx { color: var(--muted); text-align: right; }
+  td.null { color: var(--muted); font-style: italic; }
+  tbody tr:hover { background: var(--hover); }
+
+  footer {
+    display: flex;
+    gap: 12px;
+    padding: 4px 10px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 11px;
+  }
+  footer .grow { flex: 1; }
+  .ok { color: var(--ok); }
+  .err { color: var(--err); }
+</style>
+</head>
+<body>
+<header>
+  <input id="db" type="text" value="/tmp/opencode/spike.db" spellcheck="false">
+  <input id="bin" type="text" value="/home/max/Projects/litedbcli/dist/linux-x64/litedbcli" spellcheck="false">
+  <label class="check"><input id="ro" type="checkbox"> readonly</label>
+  <label class="check"><input id="shared" type="checkbox"> shared</label>
+  <label class="check">limit <input id="limit" type="number" min="1" max="100000" value="1000"></label>
+  <button id="open">Open</button>
+  <button id="run" class="primary" disabled>Run &#9654;</button>
+</header>
+
+<main>
+  <aside>
+    <h2>Collections</h2>
+    <div id="collections"></div>
+  </aside>
+  <section>
+    <div class="editor">
+      <div class="label">
+        <span>SQL</span>
+        <span class="grow"></span>
+        <span>Ctrl+Enter</span>
+      </div>
+      <textarea id="sql" spellcheck="false">show tables</textarea>
+    </div>
+    <div class="editor">
+      <div class="label">
+        <span>Result</span>
+        <span class="grow"></span>
+        <label class="check"><input id="raw" type="checkbox"> JSON</label>
+      </div>
+      <div id="out" class="out"><pre>Open a database to start.</pre></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span id="status">idle</span>
+  <span class="grow"></span>
+  <span>sidecar: litedbcli --serve · NDJSON</span>
+</footer>
+
+<script>
+  const { invoke } = window.__TAURI__.core;
+  const $ = (id) => document.getElementById(id);
+  const out = $("out"), status = $("status"), collections = $("collections");
+
+  let connected = false;
+  let lastResponse = null;
+
+  function setStatus(text, cls) {
+    status.textContent = text;
+    status.className = cls || "";
+  }
+
+  function setBusy(busy) {
+    $("open").disabled = busy;
+    $("run").disabled = busy || !connected;
+  }
+
+  function showJson(value, error) {
+    out.innerHTML = "";
+    const pre = document.createElement("pre");
+    pre.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    if (error) pre.className = "err";
+    out.appendChild(pre);
+  }
+
+  function cellValue(value) {
+    if (value === undefined) return "";
+    if (value === null) return null;
+    if (typeof value !== "object") return String(value);
+    if (value.$oid) return value.$oid;
+    if (value.$date) return value.$date;
+    if (value.$numberLong) return value.$numberLong;
+    if (value.$numberDecimal) return value.$numberDecimal;
+    if (value.$binary) return "binary(" + (value.$binary.base64 || "").length + ")";
+    return JSON.stringify(value);
+  }
+
+  function renderTable(response) {
+    const columns = response.columns || [];
+    const rows = response.rows || [];
+
+    if (rows.length === 0) {
+      showJson(columns.length ? "0 rows" : "0 rows (no columns in result)");
+      return;
+    }
+
+    const wrap = document.createElement("div");
+    wrap.className = "tablewrap";
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+
+    const corner = document.createElement("th");
+    corner.textContent = "#";
+    headRow.appendChild(corner);
+
+    for (const column of columns) {
+      const th = document.createElement("th");
+      th.textContent = column;
+      headRow.appendChild(th);
+    }
+
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+
+    rows.forEach((row, index) => {
+      const tr = document.createElement("tr");
+
+      const idx = document.createElement("td");
+      idx.className = "idx";
+      idx.textContent = index + 1;
+      tr.appendChild(idx);
+
+      for (const column of columns) {
+        const td = document.createElement("td");
+        const value = cellValue(row[column]);
+        if (value === null) {
+          td.textContent = "null";
+          td.className = "null";
+        } else {
+          td.textContent = value;
+          td.title = value;
+        }
+        tr.appendChild(td);
+      }
+
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+
+    out.innerHTML = "";
+    out.appendChild(wrap);
+  }
+
+  function renderCollections(names) {
+    collections.innerHTML = "";
+    for (const name of names) {
+      const div = document.createElement("div");
+      div.className = "collection";
+      div.textContent = name;
+      div.title = name;
+      div.onclick = () => {
+        $("sql").value = `select $ from ${name} limit ${$("limit").value}`;
+        run();
+      };
+      collections.appendChild(div);
+    }
+  }
+
+  function render(response) {
+    lastResponse = response;
+
+    if ($("raw").checked) {
+      showJson(response, response.ok === false);
+    } else if (response.ok === false) {
+      showJson(`${response.error} (${response.type})`, true);
+    } else if (response.type === "query") {
+      renderTable(response);
+    } else if (response.type === "collections") {
+      renderCollections(response.collections || []);
+      showJson(response.collections.join("\n"));
+    } else {
+      showJson(response.value);
+    }
+
+    if (response.ok === false) {
+      setStatus("error", "err");
+    } else if (response.type === "query") {
+      const truncated = response.truncated ? " · truncated" : "";
+      const elapsed = Math.round(response.elapsed_ms || 0);
+      setStatus(`${response.count} rows${truncated} · ${elapsed} ms`, "ok");
+    } else {
+      setStatus("ok", "ok");
+    }
+  }
+
+  async function run() {
+    if (!connected) return;
+
+    const sql = $("sql").value.trim();
+    if (!sql) return;
+
+    setBusy(true);
+    setStatus("running...");
+
+    try {
+      const response = await invoke("run_query", {
+        sql,
+        limit: Number($("limit").value) || 1000
+      });
+      render(response);
+    } catch (error) {
+      showJson(String(error), true);
+      setStatus("sidecar error", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openDb() {
+    const bin = $("bin").value.trim();
+    const db = $("db").value.trim();
+    if (!bin || !db) return;
+
+    connected = false;
+    setBusy(true);
+    setStatus("opening...");
+    out.innerHTML = "";
+    collections.innerHTML = "";
+
+    try {
+      const info = await invoke("open_db", {
+        bin,
+        db,
+        readonly: $("ro").checked,
+        shared: $("shared").checked
+      });
+
+      const names = (info.collections && info.collections.collections) || [];
+      renderCollections(names);
+      connected = true;
+
+      if (names.length && $("sql").value.trim() === "show tables") {
+        $("sql").value = `select $ from ${names[0]} limit ${$("limit").value}`;
+      }
+
+      setStatus(`connected · ${names.length} collections`, "ok");
+      await run();
+    } catch (error) {
+      connected = false;
+      showJson(String(error), true);
+      setStatus("open failed", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  $("open").onclick = openDb;
+  $("run").onclick = run;
+  $("raw").onchange = () => { if (lastResponse) render(lastResponse); };
+  $("sql").addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      run();
+    }
+  });
+
+  openDb();
+</script>
+</body>
+</html>
