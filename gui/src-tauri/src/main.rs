@@ -69,11 +69,15 @@ fn stop(sidecar: Option<Sidecar>) {
 #[tauri::command]
 async fn open_db(
     app: AppHandle,
-    bin: String,
+    bin: Option<String>,
     db: String,
     readonly: bool,
     shared: bool,
 ) -> Result<Value, String> {
+    let bin = match bin {
+        Some(b) if !b.trim().is_empty() => b.trim().to_string(),
+        _ => resolve_binary()?.to_string_lossy().into_owned(),
+    };
     tauri::async_runtime::spawn_blocking(move || {
         let state: State<AppState> = app.state();
         let mut guard = state
@@ -128,7 +132,7 @@ async fn open_db(
 }
 
 #[tauri::command]
-async fn run_query(app: AppHandle, sql: String, limit: Option<u32>) -> Result<Value, String> {
+async fn run_query(app: AppHandle, sql: String) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state: State<AppState> = app.state();
         let mut guard = state
@@ -137,10 +141,173 @@ async fn run_query(app: AppHandle, sql: String, limit: Option<u32>) -> Result<Va
             .map_err(|_| "sidecar state is poisoned".to_string())?;
 
         let sidecar = guard.as_mut().ok_or("database is not open")?;
-        sidecar.request(json!({ "sql": sql, "limit": limit.unwrap_or(1000) }))
+        sidecar.request(json!({ "sql": sql, "limit": 1000 }))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+fn push_recent(recent: &mut Vec<Value>, path: &str, readonly: bool, shared: bool) {
+    let now = chrono::Utc::now().to_rfc3339();
+    recent.retain(|entry| entry["path"] != json!(path));
+    recent.insert(
+        0,
+        json!({
+            "path": path,
+            "openedAt": now,
+            "readonly": readonly,
+            "shared": shared
+        }),
+    );
+    recent.truncate(10);
+}
+
+fn default_binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "litedbcli.exe"
+    } else {
+        "litedbcli"
+    }
+}
+
+fn default_dist_dir() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "dist/macos-aarch64"
+    } else if cfg!(target_os = "windows") {
+        "dist/win-x64"
+    } else {
+        "dist/linux-x64"
+    }
+}
+
+fn find_on_path(name: &str) -> Option<std::path::PathBuf> {
+    let paths = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&paths) {
+        let candidate = if dir.as_os_str().is_empty() {
+            std::path::PathBuf::from(name)
+        } else {
+            dir.join(name)
+        };
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Resolve the litedbcli binary: env LITEDBCLI_BIN -> PATH -> repo dist dir
+/// relative to the GUI executable (../../../dist/<platform>/litedbcli[.exe]).
+fn resolve_binary() -> Result<std::path::PathBuf, String> {
+    let _ = std::env::current_exe();
+
+    let name = default_binary_name();
+
+    if let Ok(env) = std::env::var("LITEDBCLI_BIN") {
+        let env = env.trim();
+        if !env.is_empty() {
+            let path = std::path::PathBuf::from(env);
+            if path.is_file() {
+                return Ok(path);
+            }
+            if let Some(found) = find_on_path(env) {
+                return Ok(found);
+            }
+        }
+    }
+
+    if let Some(found) = find_on_path(name) {
+        return Ok(found);
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(base) = exe.ancestors().nth(5) {
+            let candidate = base.join(default_dist_dir()).join(name);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    Err(format!(
+        "cannot find '{name}': set LITEDBCLI_BIN, put it on PATH, or build it into {}",
+        default_dist_dir()
+    ))
+}
+
+#[tauri::command]
+fn binary_path() -> Result<String, String> {
+    Ok(resolve_binary()?.to_string_lossy().into_owned())
+}
+
+fn state_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("cannot resolve app data dir: {e}"))?;
+    Ok(dir.join("state.json"))
+}
+
+fn read_recent(file: &std::path::Path) -> Vec<Value> {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn write_recent(file: &std::path::Path, recent: &[Value]) -> Result<(), String> {
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("cannot create state dir: {e}"))?;
+    }
+    let out = serde_json::to_string_pretty(recent).map_err(|e| e.to_string())?;
+    let tmp = file.with_extension("json.tmp");
+    std::fs::write(&tmp, &out).map_err(|e| format!("cannot write state file: {e}"))?;
+    std::fs::rename(&tmp, file).map_err(|e| format!("cannot move state file: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn recent_list(app: AppHandle) -> Result<Vec<Value>, String> {
+    Ok(read_recent(&state_file(&app)?))
+}
+
+#[tauri::command]
+fn remember_recent(app: AppHandle, path: String, readonly: bool, shared: bool) -> Result<Vec<Value>, String> {
+    let file = state_file(&app)?;
+    let mut recent = read_recent(&file);
+    push_recent(&mut recent, &path, readonly, shared);
+    write_recent(&file, &recent)?;
+    Ok(recent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recent_list_dedups_and_caps() {
+        let mut recent: Vec<Value> = Vec::new();
+        for path in ["a.db", "b.db", "a.db", "c.db", "b.db"] {
+            push_recent(&mut recent, path, false, false);
+        }
+        let paths: Vec<&str> = recent.iter().map(|v| v["path"].as_str().unwrap()).collect();
+        assert_eq!(paths, vec!["b.db", "c.db", "a.db"]);
+        for entry in &recent {
+            assert!(entry["openedAt"].is_string());
+            assert!(entry["readonly"].as_bool().is_some());
+            assert!(entry["shared"].as_bool().is_some());
+        }
+    }
+
+    #[test]
+    fn recent_list_caps_at_ten() {
+        let mut recent: Vec<Value> = Vec::new();
+        for i in 0..15 {
+            push_recent(&mut recent, &format!("db{}.db", i), false, false);
+        }
+        assert_eq!(recent.len(), 10);
+        assert_eq!(recent[0]["path"], json!("db14.db"));
+        assert_eq!(recent[9]["path"], json!("db5.db"));
+    }
 }
 
 #[tauri::command]
@@ -162,7 +329,7 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_db, run_query, close_db])
+        .invoke_handler(tauri::generate_handler![open_db, run_query, close_db, remember_recent, recent_list, binary_path])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

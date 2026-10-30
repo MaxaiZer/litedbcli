@@ -33,7 +33,7 @@
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
-  header input[type=text], header input[type=number] {
+  header input[type=text], header input[type=number], header select {
     padding: 5px 8px;
     background: var(--bg);
     color: var(--fg);
@@ -41,9 +41,8 @@
     border-radius: 4px;
     font: inherit;
   }
+  #recent { max-width: 280px; flex: 0 1 auto; }
   #db { flex: 1; min-width: 220px; }
-  #bin { flex: 0 1 320px; min-width: 180px; }
-  #limit { width: 76px; }
   label.check {
     display: inline-flex;
     gap: 4px;
@@ -168,13 +167,11 @@
 </head>
 <body>
 <header>
-  <input id="db" type="text" value="/tmp/opencode/spike.db" spellcheck="false">
+  <select id="recent" title="Recently opened databases"><option value="">(no recent)</option></select>
+  <input id="db" type="text" spellcheck="false" title="Enter to open">
   <button id="browse" title="Choose database file">Browse…</button>
-  <input id="bin" type="text" value="/home/max/Projects/litedbcli/dist/linux-x64/litedbcli" spellcheck="false">
   <label class="check"><input id="ro" type="checkbox"> readonly</label>
   <label class="check"><input id="shared" type="checkbox"> shared</label>
-  <label class="check">limit <input id="limit" type="number" min="1" max="100000" value="1000"></label>
-  <button id="open">Open</button>
   <button id="run" class="primary" disabled>Run &#9654;</button>
 </header>
 
@@ -212,6 +209,44 @@
   const $ = (id) => document.getElementById(id);
   const out = $("out"), status = $("status"), collections = $("collections");
 
+  let recentEntries = [];
+
+  async function loadRecent() {
+    const select = $("recent");
+    try {
+      recentEntries = (await invoke("recent_list")) || [];
+    } catch (e) {
+      recentEntries = [];
+    }
+    select.innerHTML = "";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = recentEntries.length ? "(choose a database)" : "(no recent)";
+    select.appendChild(empty);
+    for (const entry of recentEntries) {
+      const opt = document.createElement("option");
+      opt.value = entry.path;
+      opt.textContent = entry.path;
+      opt.title = `${entry.path}\nopened ${entry.openedAt || "?"}`;
+      select.appendChild(opt);
+    }
+  }
+
+  async function rememberRecent() {
+    try {
+      const updated = await invoke("remember_recent", {
+        path: $("db").value.trim(),
+        readonly: $("ro").checked,
+        shared: $("shared").checked
+      });
+      recentEntries = updated || [];
+      await loadRecent();
+      $("recent").value = $("db").value.trim();
+    } catch (e) {
+      console.error("remember_recent failed:", e);
+    }
+  }
+
   let connected = false;
   let lastResponse = null;
 
@@ -221,7 +256,6 @@
   }
 
   function setBusy(busy) {
-    $("open").disabled = busy;
     $("run").disabled = busy || !connected;
   }
 
@@ -315,7 +349,7 @@
       div.textContent = name;
       div.title = name;
       div.onclick = () => {
-        $("sql").value = `select $ from ${name} limit ${$("limit").value}`;
+        $("sql").value = `select $ from ${name} limit 1000`;
         run();
       };
       collections.appendChild(div);
@@ -361,7 +395,6 @@
     try {
       const response = await invoke("run_query", {
         sql,
-        limit: Number($("limit").value) || 1000
       });
       render(response);
     } catch (error) {
@@ -403,9 +436,8 @@
   }
 
   async function openDb() {
-    const bin = $("bin").value.trim();
     const db = $("db").value.trim();
-    if (!bin || !db) return;
+    if (!db) return;
 
     connected = false;
     setBusy(true);
@@ -415,7 +447,6 @@
 
     try {
       const info = await invoke("open_db", {
-        bin,
         db,
         readonly: $("ro").checked,
         shared: $("shared").checked
@@ -426,10 +457,11 @@
       connected = true;
 
       if (names.length && $("sql").value.trim() === "show tables") {
-        $("sql").value = `select $ from ${names[0]} limit ${$("limit").value}`;
+        $("sql").value = `select $ from ${names[0]} limit 1000`;
       }
 
       setStatus(`connected · ${names.length} collections`, "ok");
+      rememberRecent();
       await run();
     } catch (error) {
       connected = false;
@@ -440,9 +472,22 @@
     }
   }
 
-  $("open").onclick = openDb;
+  $("db").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") openDb();
+  });
   $("browse").onclick = pickDb;
   $("run").onclick = run;
+  $("recent").onchange = () => {
+    const path = $("recent").value;
+    if (!path) return;
+    const entry = recentEntries.find((e) => e.path === path);
+    $("db").value = path;
+    if (entry) {
+      $("ro").checked = !!entry.readonly;
+      $("shared").checked = !!entry.shared;
+    }
+    openDb();
+  };
   $("raw").onchange = () => { if (lastResponse) render(lastResponse); };
   $("sql").addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -451,7 +496,13 @@
     }
   });
 
-  openDb();
+  loadRecent();
+  invoke("binary_path")
+    .then((bin) => console.log(`litedb-gui: sidecar resolved: ${bin}`))
+    .catch((e) => {
+      console.error(`litedb-gui: sidecar not found: ${e}`);
+      setStatus("sidecar not found", "err");
+    });
 </script>
 </body>
 </html>
