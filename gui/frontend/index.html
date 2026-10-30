@@ -153,7 +153,7 @@
     color: var(--muted);
     font-weight: normal;
   }
-  td.idx { color: var(--muted); text-align: right; }
+  .idx { color: var(--muted); text-align: right; }
   td.null { color: var(--muted); font-style: italic; }
   tbody tr:hover { background: var(--hover); }
 
@@ -464,6 +464,7 @@
     const headRow = document.createElement("tr");
 
     const corner = document.createElement("th");
+    corner.className = "idx";
     corner.textContent = "#";
     headRow.appendChild(corner);
 
