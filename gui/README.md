@@ -21,7 +21,9 @@ cd gui/src-tauri && cargo build
 
 On Linux, launch with `WEBKIT_DISABLE_DMABUF_RENDERER=1` if WebKit fails to
 render. The sidecar path and the database path are editable fields in the
-header; the defaults point at `dist/linux-x64/litedbcli` and a scratch DB.
+header. The GUI locates the sidecar in this order: `LITEDBCLI_BIN` env,
+`PATH`, then the folder of the GUI executable — so simply put
+`litedbcli[.exe]` next to `litedb-gui` and it will be found.
 
 ## Sidecar lifecycle
 

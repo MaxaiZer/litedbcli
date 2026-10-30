@@ -186,16 +186,6 @@ fn default_binary_name() -> &'static str {
     }
 }
 
-fn default_dist_dir() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "dist/macos-aarch64"
-    } else if cfg!(target_os = "windows") {
-        "dist/win-x64"
-    } else {
-        "dist/linux-x64"
-    }
-}
-
 fn find_on_path(name: &str) -> Option<std::path::PathBuf> {
     let paths = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&paths) {
@@ -211,8 +201,8 @@ fn find_on_path(name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-/// Resolve the litedbcli binary: env LITEDBCLI_BIN -> PATH -> repo dist dir
-/// relative to the GUI executable (../../../dist/<platform>/litedbcli[.exe]).
+/// Resolve the litedbcli binary: env LITEDBCLI_BIN -> PATH -> folder of the
+/// GUI executable (litedbcli placed next to the GUI binary).
 fn resolve_binary() -> Result<std::path::PathBuf, String> {
     let _ = std::env::current_exe();
 
@@ -236,8 +226,8 @@ fn resolve_binary() -> Result<std::path::PathBuf, String> {
     }
 
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(base) = exe.ancestors().nth(5) {
-            let candidate = base.join(default_dist_dir()).join(name);
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(name);
             if candidate.is_file() {
                 return Ok(candidate);
             }
@@ -245,8 +235,7 @@ fn resolve_binary() -> Result<std::path::PathBuf, String> {
     }
 
     Err(format!(
-        "cannot find '{name}': set LITEDBCLI_BIN, put it on PATH, or build it into {}",
-        default_dist_dir()
+        "cannot find '{name}': set LITEDBCLI_BIN, put it on PATH, or place {name} next to the GUI binary"
     ))
 }
 
