@@ -169,6 +169,7 @@
 <body>
 <header>
   <input id="db" type="text" value="/tmp/opencode/spike.db" spellcheck="false">
+  <button id="browse" title="Choose database file">Browse…</button>
   <input id="bin" type="text" value="/home/max/Projects/litedbcli/dist/linux-x64/litedbcli" spellcheck="false">
   <label class="check"><input id="ro" type="checkbox"> readonly</label>
   <label class="check"><input id="shared" type="checkbox"> shared</label>
@@ -373,6 +374,36 @@
     }
   }
 
+  async function pickDb() {
+    try {
+    const dialog = window.__TAURI__.dialog;
+    if (!dialog) throw new Error("dialog API is not available");
+    const options = {
+      title: "Choose LiteDB database file",
+      multiple: false,
+      filters: [
+        { name: "LiteDB", extensions: ["db"] },
+        { name: "All files", extensions: ["*"] }
+      ]
+    };
+
+    const current = $("db").value.trim();
+    if (current && !current.includes(";") && !current.includes("=")) {
+      const dir = current.replace(/[\\/][^\\/]*$/, "");
+      if (dir) options.defaultPath = dir;
+    }
+
+    const selected = await dialog.open(options);
+    if (selected) {
+      $("db").value = selected;
+      openDb();
+    }
+    } catch (error) {
+      showJson(String(error), true);
+      setStatus("browse failed", "err");
+    }
+  }
+
   async function openDb() {
     const bin = $("bin").value.trim();
     const db = $("db").value.trim();
@@ -412,6 +443,7 @@
   }
 
   $("open").onclick = openDb;
+  $("browse").onclick = pickDb;
   $("run").onclick = run;
   $("raw").onchange = () => { if (lastResponse) render(lastResponse); };
   $("sql").addEventListener("keydown", (event) => {

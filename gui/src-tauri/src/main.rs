@@ -161,6 +161,7 @@ async fn close_db(app: AppHandle) -> Result<(), String> {
 fn main() {
     let app = tauri::Builder::default()
         .manage(AppState::default())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![open_db, run_query, close_db])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
