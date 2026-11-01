@@ -36,7 +36,8 @@ cd gui/src-tauri && cargo build
 
 See `gui/README.md` for details.
 
-<img width="1078" height="537" alt="image" src="https://github.com/user-attachments/assets/08e8253a-a49e-419f-b679-573bf39dd97f" />
+<img width="968" height="535" alt="image" src="https://github.com/user-attachments/assets/54a14266-061c-4c43-9ed4-4618c461cb98" />
+
 
 # Usage
 
