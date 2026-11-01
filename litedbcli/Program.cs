@@ -39,6 +39,12 @@ namespace litedbcli
             if (opts.Serve && opts.Json == false)
                 opts.Json = true;
 
+            var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            if (Console.IsOutputRedirected)
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true });
+            if (Console.IsInputRedirected)
+                Console.SetIn(new StreamReader(Console.OpenStandardInput(), utf8));
+
             try
             {
                 using (var db = new LiteDatabase(opts.Connection))
