@@ -397,7 +397,7 @@
   <div id="conn-chip" class="chip" hidden>
     <span id="conn-name"></span>
     <span id="conn-mode" class="chip-mode"></span>
-    <button id="conn-close" class="chip-x" title="Close database">&#10005;</button>
+    <button id="conn-close" class="chip-x" aria-label="Close database" title="Close database">&#10005;</button>
   </div>
   <span class="grow"></span>
   <button id="edit-connection" title="Change settings and reconnect" hidden>Edit connection</button>
@@ -413,7 +413,7 @@
     <div class="editor">
       <div class="label">
         <span>SQL</span>
-        <button id="sql-help" class="hintbtn" title="LiteDB SQL reference: https://www.litedb.org/docs/reference/sql/">?</button>
+        <button id="sql-help" class="hintbtn" aria-label="SQL help" title="LiteDB SQL reference: https://www.litedb.org/docs/reference/sql/">?</button>
         <span class="grow"></span>
         <span>Ctrl+Enter</span>
       </div>
@@ -443,7 +443,7 @@
       <div class="modal-head">
         <span id="connect-title">Open database</span>
         <span class="grow"></span>
-        <button id="connect-close" class="closebtn" title="Close">&#10005;</button>
+        <button id="connect-close" class="closebtn" aria-label="Close dialog" title="Close">&#10005;</button>
       </div>
       <div class="modal-body">
         <p id="connect-hint" class="connect-hint">Open a LiteDB file. A password is required only for encrypted databases.</p>
@@ -485,7 +485,7 @@
       <div class="modal-head">
         <span>LiteDB query syntax</span>
         <span class="grow"></span>
-        <button class="closebtn" data-close="help-modal" title="Close">&#10005;</button>
+        <button class="closebtn" data-close="help-modal" aria-label="Close help" title="Close">&#10005;</button>
       </div>
       <div class="modal-body help-body">
         <h3>Reads</h3>
@@ -525,7 +525,7 @@
         <span id="modal-title">Edit document</span>
         <span class="grow"></span>
         <span id="modal-readonly" class="hint" hidden>read-only</span>
-        <button id="modal-close" class="closebtn" title="Close">&#10005;</button>
+        <button id="modal-close" class="closebtn" aria-label="Close editor" title="Close">&#10005;</button>
       </div>
       <div id="modal-body" class="modal-body"></div>
       <div class="modal-foot">
@@ -616,6 +616,7 @@
       remove.type = "button";
       remove.className = "recent-remove";
       remove.title = "Forget this database";
+      remove.setAttribute("aria-label", "Forget this database");
       remove.textContent = "\u2715";
       remove.onclick = () => forgetRecent(entry.path);
 
@@ -816,6 +817,7 @@
       }
 
       tr.title = "click to edit document";
+      tr.setAttribute("aria-label", "Edit document");
       tr.onclick = () => openEditor(row, response.collection);
       tbody.appendChild(tr);
     });
@@ -871,6 +873,7 @@
     row.appendChild(val);
     const del = el("button", "del", "\u00d7");
     del.title = "remove field";
+    del.setAttribute("aria-label", "Remove field");
     del.onclick = () => {
       const i = parent.indexOf(f);
       if (i >= 0) parent.splice(i, 1);
@@ -892,6 +895,7 @@
     row.appendChild(val);
     const del = el("button", "del", "\u00d7");
     del.title = "remove item";
+    del.setAttribute("aria-label", "Remove item");
     del.onclick = () => {
       const i = parent.indexOf(m);
       if (i >= 0) parent.splice(i, 1);
