@@ -50,7 +50,7 @@ Options:
   --readonly        Open database in read-only mode
   --shared          Use Connection=Shared (safe for multiple processes)
   --direct          Use Connection=Direct (default, fastest)
-  --password <pwd>  Database password
+  --password <pwd>  Database password (or LITEDBCLI_PASSWORD)
   --help            Show this help
 ```
 
@@ -64,6 +64,10 @@ litedbcli 'Filename=test.db;Password=secret;Connection=shared' "show tables"
 
 A path containing `=` is treated as a file name unless it contains `;` or
 starts with a known connection-string key.
+
+If the database is encrypted, the password is resolved in this order:
+`--password`, `Password=` in the connection string, then the
+`LITEDBCLI_PASSWORD` environment variable.
 
 ## One-shot command
 
@@ -180,4 +184,5 @@ with other tools should use `--shared`; a single-process studio can use
   `insert ... values` are rejected by the LiteDB SQL parser.
 - Text (non-JSON) output still uses tab-separated columns and a header taken
   from the first row; prefer `--json` for machine consumption.
-- Passwords passed via `--password` are visible in the process list.
+- Passwords passed via `--password` are visible in the process list. Prefer
+  `LITEDBCLI_PASSWORD` or a connection string when that matters.

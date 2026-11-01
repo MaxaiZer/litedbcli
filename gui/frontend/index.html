@@ -16,6 +16,7 @@
     --hover: #35373b;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
   body {
     display: grid;
@@ -33,7 +34,7 @@
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
-  header input[type=text], header input[type=number], header select {
+  header input[type=text], header input[type=number] {
     padding: 5px 8px;
     background: var(--bg);
     color: var(--fg);
@@ -41,14 +42,75 @@
     border-radius: 4px;
     font: inherit;
   }
-  header select {
-    /* WebKitGTK renders <select> as a native widget that overrides the CSS background */
-    background-color: var(--bg) !important;
-    color: var(--fg) !important;
-    color-scheme: dark;
+  .grow { flex: 1; }
+  .recent-wrap { position: relative; }
+  .recent-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 1500;
+    min-width: 300px;
+    max-width: min(560px, calc(100vw - 20px));
+    max-height: min(60vh, 420px);
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
   }
-  #recent { max-width: 280px; flex: 0 1 auto; }
-  #db { flex: 1; min-width: 220px; }
+  .recent-item { display: flex; border-bottom: 1px solid var(--border); }
+  .recent-item:last-child { border-bottom: 0; }
+  .recent-open {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+  }
+  .recent-open:hover { background: var(--hover); }
+  .recent-path {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent-flags { display: block; color: var(--muted); font-size: 11px; }
+  .recent-remove {
+    padding: 0 10px;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+  }
+  .recent-remove:hover:not(:disabled) { color: var(--err); background: var(--hover); }
+  .recent-menu-foot { padding: 4px; text-align: right; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 360px;
+    padding: 4px 4px 4px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  #conn-name {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chip-mode { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .chip-x {
+    padding: 0 5px;
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    line-height: 1;
+  }
+  .chip-x:hover:not(:disabled) { color: var(--err); background: transparent; }
   label.check {
     display: inline-flex;
     gap: 4px;
@@ -121,6 +183,7 @@
     font: inherit;
     tab-size: 2;
   }
+  .result-body { position: relative; flex: 1; min-height: 0; display: flex; }
   .out { flex: 1; overflow: auto; min-height: 0; }
   .out pre {
     margin: 0;
@@ -130,6 +193,19 @@
     font: inherit;
   }
   .out pre.err { color: var(--err); }
+  .empty-state {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg);
+  }
+  .empty-card { max-width: 440px; text-align: center; }
+  .empty-card h1 { margin: 0 0 8px; font-size: 18px; font-weight: normal; }
+  .empty-card p { margin: 0 0 16px; color: var(--muted); }
 
   .tablewrap { overflow: auto; height: 100%; }
   table { border-collapse: collapse; width: max-content; min-width: 100%; }
@@ -271,15 +347,60 @@
   .help-table td { padding: 2px 12px 2px 0; vertical-align: top; }
   .help-table code { color: var(--accent); }
   .help-body .hint { margin: 4px 0 8px; }
+
+  .connect-box { width: min(560px, calc(100vw - 40px)); }
+  .connect-hint { margin: 0 0 14px; color: var(--muted); }
+  .form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .form-row > label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+  }
+  .form-row > label .optional { text-transform: none; letter-spacing: 0; }
+  .path-row { display: flex; gap: 6px; }
+  .path-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font: inherit;
+  }
+  .path-row button { padding: 4px 10px; }
+  .path-row input[readonly] { color: var(--muted); }
+  .options { display: flex; flex-wrap: wrap; gap: 16px; }
+  .err-text { margin-top: 4px; color: var(--err); white-space: pre-wrap; }
+  .linkbtn {
+    padding: 4px 6px;
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+  }
+  .linkbtn:hover:not(:disabled) { color: var(--err); background: transparent; }
 </style>
 </head>
 <body>
 <header>
-  <select id="recent" title="Recently opened databases"><option value="">(no recent)</option></select>
-  <input id="db" type="text" spellcheck="false" title="Enter to open">
-  <button id="browse" title="Choose database file">Browse…</button>
-  <label class="check"><input id="ro" type="checkbox"> readonly</label>
-  <label class="check"><input id="shared" type="checkbox"> shared</label>
+  <div class="recent-wrap">
+    <button id="open-recent" title="Open a recently used database" disabled>Open recent</button>
+    <div id="recent-menu" class="recent-menu" hidden>
+      <div id="recent-list"></div>
+      <div class="recent-menu-foot">
+        <button id="recent-clear" class="linkbtn" type="button">Clear recent</button>
+      </div>
+    </div>
+  </div>
+  <button id="open-db" class="primary">Open database&hellip;</button>
+  <div id="conn-chip" class="chip" hidden>
+    <span id="conn-name"></span>
+    <span id="conn-mode" class="chip-mode"></span>
+    <button id="conn-close" class="chip-x" title="Close database">&#10005;</button>
+  </div>
+  <span class="grow"></span>
+  <button id="edit-connection" title="Change settings and reconnect" hidden>Edit connection</button>
   <button id="run" class="primary" disabled>Run &#9654;</button>
 </header>
 
@@ -304,9 +425,60 @@
         <span class="grow"></span>
         <label class="check"><input id="raw" type="checkbox"> JSON</label>
       </div>
-      <div id="out" class="out"><pre>Open a database to start.</pre></div>
+      <div class="result-body">
+        <div id="out" class="out"></div>
+        <div id="empty-state" class="empty-state">
+          <div class="empty-card">
+            <h1>No database open</h1>
+            <p>Open a LiteDB file to browse and edit collections.</p>
+            <button id="empty-open" class="primary">Open database&hellip;</button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
+  <div id="connect-modal" hidden>
+    <div id="connect-backdrop" class="modal-backdrop"></div>
+    <div class="modal-box connect-box">
+      <div class="modal-head">
+        <span id="connect-title">Open database</span>
+        <span class="grow"></span>
+        <button id="connect-close" class="closebtn" title="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <p id="connect-hint" class="connect-hint">Open a LiteDB file. A password is required only for encrypted databases.</p>
+        <div class="form-row">
+          <label for="connect-path">Database file</label>
+          <div class="path-row">
+            <input id="connect-path" type="text" spellcheck="false" placeholder="/path/to/file.db">
+            <button id="connect-browse" type="button">Browse&hellip;</button>
+          </div>
+        </div>
+        <div id="connect-password-row" class="form-row">
+          <label for="connect-password">Password <span class="optional">(optional)</span></label>
+          <div class="path-row">
+            <input id="connect-password" type="password" autocomplete="off" spellcheck="false">
+            <button id="connect-show" type="button">show</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Options</label>
+          <div class="options">
+            <label class="check"><input id="connect-readonly" type="checkbox"> Read-only</label>
+            <label class="check"><input id="connect-shared" type="checkbox"> Shared mode</label>
+          </div>
+        </div>
+        <div id="connect-error" class="err-text" hidden></div>
+      </div>
+      <div class="modal-foot">
+        <button id="connect-clear-recent" class="linkbtn" type="button">Clear recent</button>
+        <span class="grow"></span>
+        <button id="connect-cancel">Cancel</button>
+        <button id="connect-open" class="primary">Open</button>
+      </div>
+    </div>
+  </div>
+
   <div id="help-modal" hidden>
     <div class="modal-backdrop" data-close="help-modal"></div>
     <div class="modal-box help-box">
@@ -377,46 +549,166 @@
   const out = $("out"), status = $("status"), collections = $("collections");
 
   let recentEntries = [];
+  const sessionPasswords = new Map();
+
+  let connected = false;
+  let currentPath = "";
+  let currentReadonly = false;
+  let currentShared = false;
+  let lastResponse = null;
+  let sortState = { field: null, dir: null };
+  let connectMode = "open";
+
+  function baseName(path) {
+    const parts = String(path).replace(/[\\/]+$/, "").split(/[\\/]/);
+    return parts[parts.length - 1] || path;
+  }
+
+  function recentFlags(entry) {
+    const flags = [];
+    if (entry.readonly) flags.push("readonly");
+    if (entry.shared) flags.push("shared");
+    if (entry.hasPassword) flags.push("password");
+    return flags;
+  }
+
+  function updateRecentControls() {
+    $("open-recent").disabled = recentEntries.length === 0;
+    if (recentEntries.length === 0) closeRecentMenu();
+  }
+
+  function toggleRecentMenu() {
+    if (recentEntries.length === 0) return;
+    $("recent-menu").hidden = !$("recent-menu").hidden;
+  }
+
+  function closeRecentMenu() {
+    $("recent-menu").hidden = true;
+  }
+
+  function renderRecentList() {
+    const list = $("recent-list");
+    list.innerHTML = "";
+    for (const entry of recentEntries) {
+      const row = document.createElement("div");
+      row.className = "recent-item";
+
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "recent-open";
+      open.title = `${entry.path}\nopened ${entry.openedAt || "?"}`;
+
+      const path = document.createElement("span");
+      path.className = "recent-path";
+      path.textContent = entry.path;
+      open.appendChild(path);
+
+      const flags = recentFlags(entry);
+      if (flags.length) {
+        const meta = document.createElement("span");
+        meta.className = "recent-flags";
+        meta.textContent = flags.join(" \u00b7 ");
+        open.appendChild(meta);
+      }
+      open.onclick = () => openRecentEntry(entry);
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "recent-remove";
+      remove.title = "Forget this database";
+      remove.textContent = "\u2715";
+      remove.onclick = () => forgetRecent(entry.path);
+
+      row.appendChild(open);
+      row.appendChild(remove);
+      list.appendChild(row);
+    }
+  }
+
+  function updateConnectionUI() {
+    $("conn-chip").hidden = !connected;
+    $("edit-connection").hidden = !connected;
+    $("run").disabled = !connected;
+    $("empty-state").hidden = connected;
+    if (!connected) return;
+
+    $("conn-name").textContent = baseName(currentPath);
+    $("conn-name").title = currentPath;
+    const modes = [];
+    if (currentReadonly) modes.push("readonly");
+    if (currentShared) modes.push("shared");
+    $("conn-mode").textContent = modes.length ? ` \u00b7 ${modes.join(" \u00b7 ")}` : "";
+    $("conn-mode").hidden = modes.length === 0;
+  }
 
   async function loadRecent() {
-    const select = $("recent");
     try {
       recentEntries = (await invoke("recent_list")) || [];
     } catch (e) {
       recentEntries = [];
     }
-    select.innerHTML = "";
-    const empty = document.createElement("option");
-    empty.value = "";
-    empty.textContent = recentEntries.length ? "(choose a database)" : "(no recent)";
-    select.appendChild(empty);
-    for (const entry of recentEntries) {
-      const opt = document.createElement("option");
-      opt.value = entry.path;
-      opt.textContent = entry.path;
-      opt.title = `${entry.path}\nopened ${entry.openedAt || "?"}`;
-      select.appendChild(opt);
-    }
+    renderRecentList();
+    updateRecentControls();
   }
 
-  async function rememberRecent() {
+  async function rememberRecent(path, readonly, shared, hasPassword) {
     try {
       const updated = await invoke("remember_recent", {
-        path: $("db").value.trim(),
-        readonly: $("ro").checked,
-        shared: $("shared").checked
+        path,
+        readonly,
+        shared,
+        hasPassword
       });
       recentEntries = updated || [];
-      await loadRecent();
-      $("recent").value = $("db").value.trim();
+      renderRecentList();
+      updateRecentControls();
     } catch (e) {
       console.error("remember_recent failed:", e);
     }
   }
 
-  let connected = false;
-  let lastResponse = null;
-  let sortState = { field: null, dir: null };
+  async function forgetRecent(path) {
+    if (!path) return;
+    try {
+      const updated = await invoke("forget_recent", { path });
+      recentEntries = updated || [];
+      sessionPasswords.delete(path);
+      renderRecentList();
+      updateRecentControls();
+      setStatus("removed from recent", "ok");
+    } catch (e) {
+      setStatus("forget failed: " + String(e), "err");
+    }
+  }
+
+  async function clearRecent() {
+    try {
+      recentEntries = (await invoke("clear_recent")) || [];
+      sessionPasswords.clear();
+      renderRecentList();
+      updateRecentControls();
+      setStatus("recent list cleared", "ok");
+    } catch (e) {
+      setStatus("clear failed: " + String(e), "err");
+    }
+  }
+
+  function openRecentEntry(entry) {
+    closeRecentMenu();
+    const cached = sessionPasswords.get(entry.path);
+    if (!entry.hasPassword || cached !== undefined) {
+      openDatabase(entry.path, !!entry.readonly, !!entry.shared, cached || null, false);
+      return;
+    }
+
+    openConnect({
+      path: entry.path,
+      readonly: !!entry.readonly,
+      shared: !!entry.shared,
+      focusPassword: true,
+      passwordHint: true
+    });
+  }
 
   const SORTABLE_SQL = /^\s*select\s+\$\s+from\s+\w+/i;
 
@@ -695,7 +987,7 @@
       setStatus("cannot build editor: " + String(e.message || e), "err");
       return;
     }
-    const ro = $("ro").checked;
+    const ro = currentReadonly;
     $("modal-title").textContent = collection + " \u00b7 _id " + cellValue(row._id);
     $("modal-readonly").hidden = !ro;
     $("modal-save").disabled = ro || !connected;
@@ -732,7 +1024,7 @@
       $("modal-msg").textContent = String(e.message || e);
       $("modal-msg").className = "grow err";
     } finally {
-      $("modal-save").disabled = $("ro").checked || !connected;
+      $("modal-save").disabled = currentReadonly || !connected;
     }
   }
 
@@ -824,90 +1116,239 @@
     }
   }
 
-  async function pickDb() {
+  function showConnectError(message) {
+    const box = $("connect-error");
+    box.textContent = message || "";
+    box.hidden = !message;
+  }
+
+  function openConnect(prefill = {}) {
+    closeRecentMenu();
+    const editing = !!prefill.editing;
+    if (editor) {
+      const discard = typeof window.confirm === "function"
+        ? window.confirm("Close the open document editor and discard changes?")
+        : true;
+      if (!discard) return;
+      closeModal();
+    }
+
+    connectMode = editing ? "edit" : "open";
+    const hasPassword = editing && sessionPasswords.has(currentPath);
+
+    $("connect-title").textContent = editing ? "Edit connection" : "Open database";
+    $("connect-path").value = editing ? currentPath : (prefill.path || "");
+    $("connect-path").readOnly = editing;
+    $("connect-browse").hidden = editing;
+    $("connect-password").value = "";
+    $("connect-password").placeholder = hasPassword
+      ? "Leave blank to use the current session password"
+      : "";
+    $("connect-password").type = "password";
+    $("connect-show").textContent = "show";
+    $("connect-password-row").hidden = editing && !hasPassword;
+    $("connect-readonly").checked = editing ? currentReadonly : !!prefill.readonly;
+    $("connect-shared").checked = editing ? currentShared : !!prefill.shared;
+    $("connect-clear-recent").hidden = editing;
+    $("connect-open").textContent = editing ? "Reconnect" : "Open";
+    $("connect-hint").textContent = editing
+      ? "Change how the current database is opened. Reconnecting restarts the sidecar; if it fails, the current connection stays open."
+      : prefill.passwordHint
+        ? "This database is password-protected. Enter its password."
+        : "Open a LiteDB file. A password is required only for encrypted databases.";
+    showConnectError("");
+    $("connect-modal").hidden = false;
+
+    let focus = $("connect-path");
+    if (editing) focus = hasPassword ? $("connect-password") : $("connect-readonly");
+    else if (prefill.focusPassword) focus = $("connect-password");
+    if (focus && focus.focus) focus.focus();
+  }
+
+  function closeConnect() {
+    $("connect-modal").hidden = true;
+    $("connect-password").value = "";
+    $("connect-password").placeholder = "";
+    $("connect-password").type = "password";
+    $("connect-show").textContent = "show";
+    connectMode = "open";
+    showConnectError("");
+  }
+
+  function openEditConnection() {
+    if (!connected) return;
+    openConnect({ editing: true });
+  }
+
+  function togglePassword() {
+    const input = $("connect-password");
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    $("connect-show").textContent = show ? "hide" : "show";
+  }
+
+  async function connectFromDialog() {
+    const editing = connectMode === "edit";
+    const path = editing ? currentPath : $("connect-path").value.trim();
+    if (!path) {
+      showConnectError("Database file is required.");
+      $("connect-path").focus();
+      return;
+    }
+
+    let password = $("connect-password").value || null;
+    if (editing && !password) password = sessionPasswords.get(currentPath) || null;
+
+    $("connect-open").disabled = true;
     try {
-    const dialog = window.__TAURI__.dialog;
-    if (!dialog) throw new Error("dialog API is not available");
-    const options = {
-      title: "Choose LiteDB database file",
-      multiple: false,
-      filters: [
-        { name: "LiteDB", extensions: ["db", "litedb"] },
-        { name: "All files", extensions: ["*"] }
-      ]
-    };
-
-    const current = $("db").value.trim();
-    if (current && !current.includes(";") && !current.includes("=")) {
-      const dir = current.replace(/[\\/][^\\/]*$/, "");
-      if (dir) options.defaultPath = dir;
-    }
-
-    const selected = await dialog.open(options);
-    if (selected) {
-      $("db").value = selected;
-      openDb();
-    }
-    } catch (error) {
-      showJson(String(error), true);
-      setStatus("browse failed", "err");
+      await openDatabase(
+        path,
+        $("connect-readonly").checked,
+        $("connect-shared").checked,
+        password,
+        true
+      );
+    } finally {
+      $("connect-open").disabled = false;
     }
   }
 
-  async function openDb() {
-    const db = $("db").value.trim();
-    if (!db) return;
+  async function pickDb() {
+    try {
+      const dialog = window.__TAURI__.dialog;
+      if (!dialog) throw new Error("dialog API is not available");
+      const options = {
+        title: "Choose LiteDB database file",
+        multiple: false,
+        filters: [
+          { name: "LiteDB", extensions: ["db", "litedb"] },
+          { name: "All files", extensions: ["*"] }
+        ]
+      };
 
-    connected = false;
+      const current = $("connect-path").value.trim();
+      if (current && !current.includes(";") && !current.includes("=")) {
+        const dir = current.replace(/[\\/][^\\/]*$/, "");
+        if (dir) options.defaultPath = dir;
+      }
+
+      const selected = await dialog.open(options);
+      if (selected) {
+        $("connect-path").value = selected;
+        $("connect-password").focus();
+      }
+    } catch (error) {
+      showConnectError(String(error));
+    }
+  }
+
+  async function openDatabase(path, readonly, shared, password, fromDialog) {
     setBusy(true);
     setStatus("opening...");
-    out.innerHTML = "";
-    collections.innerHTML = "";
 
     try {
       const info = await invoke("open_db", {
-        db,
-        readonly: $("ro").checked,
-        shared: $("shared").checked
+        db: path,
+        readonly,
+        shared,
+        password: password || null
       });
 
       const names = (info.collections && info.collections.collections) || [];
-      renderCollections(names);
+      if (editor) closeModal();
       connected = true;
+      currentPath = path;
+      currentReadonly = !!readonly;
+      currentShared = !!shared;
+      if (password) sessionPasswords.set(path, password);
+      else sessionPasswords.delete(path);
+
+      renderCollections(names);
+      updateConnectionUI();
+      closeConnect();
 
       sortState = { field: null, dir: null };
       if (names.length && $("sql").value.trim() === "show tables") {
         $("sql").value = `select $ from ${names[0]} limit 1000`;
       }
 
-      setStatus(`connected · ${names.length} collections`, "ok");
-      rememberRecent();
+      setStatus(`connected \u00b7 ${names.length} collections`, "ok");
+      await rememberRecent(path, !!readonly, !!shared, !!password);
       await run();
+      return true;
     } catch (error) {
-      connected = false;
-      showJson(String(error), true);
-      setStatus("open failed", "err");
+      const message = String(error);
+      if (fromDialog) showConnectError(message);
+      else setStatus("open failed: " + message, "err");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  $("db").addEventListener("keydown", (event) => {
-    if (event.key === "Enter") openDb();
-  });
-  $("browse").onclick = pickDb;
-  $("run").onclick = run;
-  $("recent").onchange = () => {
-    const path = $("recent").value;
-    if (!path) return;
-    const entry = recentEntries.find((e) => e.path === path);
-    $("db").value = path;
-    if (entry) {
-      $("ro").checked = !!entry.readonly;
-      $("shared").checked = !!entry.shared;
+  async function closeDatabase() {
+    if (!connected) return;
+    if (editor) {
+      const discard = typeof window.confirm === "function"
+        ? window.confirm("Close the open document editor and discard changes?")
+        : true;
+      if (!discard) return;
+      closeModal();
     }
-    openDb();
-  };
+
+    try {
+      await invoke("close_db");
+    } catch (error) {
+      console.error("close_db failed:", error);
+    }
+
+    connected = false;
+    currentPath = "";
+    currentReadonly = false;
+    currentShared = false;
+    collections.innerHTML = "";
+    out.innerHTML = "";
+    lastResponse = null;
+    sortState = { field: null, dir: null };
+    updateConnectionUI();
+    setStatus("disconnected");
+  }
+
+  $("open-db").onclick = () => openConnect();
+  $("empty-open").onclick = () => openConnect();
+  $("run").onclick = run;
+  $("conn-close").onclick = closeDatabase;
+  $("edit-connection").onclick = openEditConnection;
+  $("open-recent").onclick = toggleRecentMenu;
+  $("recent-clear").onclick = clearRecent;
+  $("connect-browse").onclick = pickDb;
+  $("connect-open").onclick = connectFromDialog;
+  $("connect-close").onclick = closeConnect;
+  $("connect-cancel").onclick = closeConnect;
+  $("connect-backdrop").onclick = closeConnect;
+  $("connect-show").onclick = togglePassword;
+  $("connect-clear-recent").onclick = clearRecent;
+
+  document.addEventListener("click", (event) => {
+    if ($("recent-menu").hidden) return;
+    if (event.target.closest && event.target.closest(".recent-wrap")) return;
+    closeRecentMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeRecentMenu();
+  });
+
+  for (const id of ["connect-path", "connect-password"]) {
+    $(id).addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        connectFromDialog();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeConnect();
+      }
+    });
+  }
   $("raw").onchange = () => { if (lastResponse) render(lastResponse); };
   $("sql").addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -919,6 +1360,7 @@
     if (!SORTABLE_SQL.test($("sql").value.trim())) sortState = { field: null, dir: null };
   });
 
+  updateConnectionUI();
   loadRecent();
   invoke("binary_path")
     .then((bin) => console.log(`litedb-gui: sidecar resolved: ${bin}`))

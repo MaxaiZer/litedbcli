@@ -509,7 +509,7 @@ namespace litedbcli
             output.WriteLine("  --readonly        Open database in read-only mode");
             output.WriteLine("  --shared          Use Connection=Shared (safe for multiple processes)");
             output.WriteLine("  --direct          Use Connection=Direct (default, fastest)");
-            output.WriteLine("  --password <pwd>  Database password");
+            output.WriteLine("  --password <pwd>  Database password (or LITEDBCLI_PASSWORD)");
             output.WriteLine("  --help            Show this help");
             output.WriteLine();
             output.WriteLine("Examples:");
@@ -631,6 +631,9 @@ namespace litedbcli
                 }
 
                 Connection = BuildConnectionString(connectionArg);
+
+                if (password == null && string.IsNullOrEmpty(Connection.Password))
+                    password = Environment.GetEnvironmentVariable("LITEDBCLI_PASSWORD");
 
                 if (password != null)
                     Connection.Password = password;

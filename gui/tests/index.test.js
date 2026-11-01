@@ -31,11 +31,18 @@ class Elem {
     this.onclick = null;
     this.onchange = null;
     this.onkeydown = null;
+    this.classList = {
+      add() {},
+      remove() {},
+      toggle() {},
+      contains() { return false; }
+    };
   }
   appendChild(c) { this.children.push(c); return c; }
   removeChild(c) { this.children = this.children.filter((x) => x !== c); }
   setAttribute() {}
   addEventListener() {}
+  focus() {}
   querySelectorAll() { return []; }
 }
 
@@ -97,8 +104,19 @@ setTimeout(() => {
   }
   // handlers that must exist after init
   const handlerChecks = [
-    ["browse", "onclick"],
-    ["recent", "onchange"],
+    ["open-db", "onclick"],
+    ["empty-open", "onclick"],
+    ["conn-close", "onclick"],
+    ["edit-connection", "onclick"],
+    ["open-recent", "onclick"],
+    ["recent-clear", "onclick"],
+    ["connect-browse", "onclick"],
+    ["connect-open", "onclick"],
+    ["connect-close", "onclick"],
+    ["connect-cancel", "onclick"],
+    ["connect-backdrop", "onclick"],
+    ["connect-show", "onclick"],
+    ["connect-clear-recent", "onclick"],
     ["modal-close", "onclick"],
     ["modal-cancel", "onclick"],
     ["modal-save", "onclick"],

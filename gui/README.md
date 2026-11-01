@@ -20,10 +20,27 @@ cd gui/src-tauri && cargo build
 ```
 
 On Linux, launch with `WEBKIT_DISABLE_DMABUF_RENDERER=1` if WebKit fails to
-render. The sidecar path and the database path are editable fields in the
-header. The GUI locates the sidecar in this order: `LITEDBCLI_BIN` env,
+render. The GUI locates the sidecar in this order: `LITEDBCLI_BIN` env,
 `PATH`, then the folder of the GUI executable — so simply put
 `litedbcli[.exe]` next to `litedb-gui` and it will be found.
+
+## Opening a database
+
+Everything is entered in the **Open database** dialog: file path, optional
+password, read-only and shared mode. The header has an **Open recent** menu
+and a chip for the currently open connection.
+
+- Recent entries store the path and mode flags, never the password.
+- A password is kept in memory for the current app session, so reopening the
+  same recent connection does not ask again until the app restarts.
+- The password is passed to the sidecar in `LITEDBCLI_PASSWORD`; it does not
+  appear in the process argument list.
+- Opening a database runs the new sidecar handshake first. If it fails, the
+  previously opened database stays connected.
+- **Edit connection** reopens the current file with different read-only/shared
+  settings. The path is fixed; use **Open database…** for another file. The
+  dialog's primary action is **Reconnect**, and a failed reconnect leaves the
+  old connection active.
 
 ## Sidecar lifecycle
 

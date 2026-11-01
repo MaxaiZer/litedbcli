@@ -82,3 +82,20 @@ send '{"op":"close"}'
 exec 9>&-
 wait "$SIDECAR" 2>/dev/null || true
 echo "ok: readonly guard"
+
+# ---- password via environment ----
+PWFILE="$WORK/secret.litedb"
+rm -f "$PWFILE"
+LITEDBCLI_PASSWORD=secret "$BIN" "$PWFILE" --json \
+  'insert into t values {"_id":"p1","name":"x"}' >/dev/null
+PWOUT="$(LITEDBCLI_PASSWORD=secret "$BIN" "$PWFILE" --json 'select $ from t limit 1')"
+[[ "$PWOUT" == *'"name":"x"'* ]] || { echo "FAIL: env password query failed: $PWOUT" >&2; exit 1; }
+if LITEDBCLI_PASSWORD=wrong "$BIN" "$PWFILE" --json 'select $ from t limit 1' >/dev/null 2>&1; then
+  echo 'FAIL: wrong env password was accepted' >&2
+  exit 1
+fi
+PWOUT="$(LITEDBCLI_PASSWORD=wrong "$BIN" "$PWFILE" --password secret --json 'select $ from t limit 1')"
+[[ "$PWOUT" == *'"name":"x"'* ]] || { echo 'FAIL: --password must override env' >&2; exit 1; }
+PWOUT="$(LITEDBCLI_PASSWORD=wrong "$BIN" "Filename=$PWFILE;Password=secret" --json 'select $ from t limit 1')"
+[[ "$PWOUT" == *'"name":"x"'* ]] || { echo 'FAIL: connection string must override env' >&2; exit 1; }
+echo "ok: env password"
